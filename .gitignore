@@ -1,0 +1,32 @@
+node_modules/
+dist/
+.DS_Store
+.env
+*.mp4
+*.mov
+*.wav
+*.mp3
+!reference_voice.mp3
+
+# Keep outputs/ folder but ignore its contents
+outputs/*
+!outputs/.gitkeep
+
+# Remotion output
+out/
+build/
+.cache/
+
+# IDE files
+.vscode/
+.idea/
+
+# Python
+__pycache__/
+*.pyc
+
+# qwen3-tts
+.agents/scratch/
+temp.wav
+
+my-video/build
