@@ -2,16 +2,19 @@ import os
 import sys
 import json
 import math
-import glob
+import shutil
 import subprocess
 
 FPS = 30
 
 # 프로젝트 루트 및 리모션 디렉토리 설정
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-PROJECT_ROOT = os.path.abspath(os.path.join(SCRIPT_DIR, "..", "..", "..", ".."))
+sys.path.insert(0, os.path.join(SCRIPT_DIR, "..", "..", "_common"))
+from pipeline_utils import PROJECT_ROOT, resolve_folder  # noqa: E402
+
 REMOTION_DIR = os.path.join(PROJECT_ROOT, "my-video")
-OUTPUTS_DIR = os.path.join(PROJECT_ROOT, "outputs")
+# Windows에서는 npx가 npx.cmd 이므로 shutil.which 로 실제 실행 파일을 찾는다
+NPX = shutil.which("npx") or "npx"
 
 def has_audio_stream(file_path):
     cmd = [
@@ -56,57 +59,20 @@ def is_all_keyframes(file_path):
         return False
 
 def main():
-    folder_path = None
-
-    # 1. 인자 처리
-    if len(sys.argv) >= 2:
-        arg_path = sys.argv[1]
-        # 입력한 경로가 그대로 존재하는 경우
-        if os.path.exists(arg_path):
-            folder_path = os.path.abspath(arg_path)
-        # outputs/<arg_path> 형태로 존재하는 경우
-        elif os.path.exists(os.path.join(OUTPUTS_DIR, arg_path)):
-            folder_path = os.path.abspath(os.path.join(OUTPUTS_DIR, arg_path))
-        else:
-            print(f"에러: 지정한 폴더를 찾을 수 없습니다: {arg_path}")
-            return
-    else:
-        # 인자가 없는 경우, outputs/ 디렉토리 내의 하위 폴더 자동 스캔
-        if not os.path.exists(OUTPUTS_DIR):
-            print("에러: outputs 디렉토리가 존재하지 않습니다.")
-            return
-            
-        subdirs = [os.path.join(OUTPUTS_DIR, d) for d in os.listdir(OUTPUTS_DIR) if os.path.isdir(os.path.join(OUTPUTS_DIR, d))]
-        
-        # scene_data.json 파일은 존재하고 output.mp4 파일은 존재하지 않는 폴더 목록 필터링
-        target_dirs = []
-        for sd in subdirs:
-            has_scene_data = os.path.exists(os.path.join(sd, "scene_data.json"))
-            has_output = os.path.exists(os.path.join(sd, "output.mp4"))
-            if has_scene_data and not has_output:
-                target_dirs.append(sd)
-                
-        if not target_dirs:
-            # 만약 조건에 맞는 폴더가 없다면, 그냥 outputs 폴더 내에서 가장 최근에 수정된 폴더를 탐색
-            if subdirs:
-                subdirs.sort(key=lambda x: os.path.getmtime(x), reverse=True)
-                folder_path = subdirs[0]
-                print(f"[*] 미처리 폴더가 없어 가장 최근 수정된 폴더를 선택했습니다: {folder_path}")
-            else:
-                print("사용법: python3 render.py <폴더경로>")
-                print("또는 outputs/ 폴더 내에 하위 폴더와 scene_data.json 파일을 생성한 후 인자 없이 실행하세요.")
-                return
-        else:
-            # 미처리 폴더 중 가장 최근 수정된 폴더 선택
-            target_dirs.sort(key=lambda x: os.path.getmtime(x), reverse=True)
-            folder_path = target_dirs[0]
-            print(f"[*] 자동으로 렌더링할 최신 미처리 폴더를 탐색했습니다: {folder_path}")
+    arg = sys.argv[1] if len(sys.argv) >= 2 else None
+    folder_path = resolve_folder(
+        arg,
+        is_ready=lambda d: os.path.exists(os.path.join(d, "scene_data.json")),
+        is_done=lambda d: os.path.exists(os.path.join(d, "output.mp4")),
+    )
+    if not folder_path:
+        sys.exit(1)
 
     # 2. 필수 파일 확인
     scene_data_path = os.path.join(folder_path, "scene_data.json")
     if not os.path.exists(scene_data_path):
         print(f"에러: {folder_path} 내에 scene_data.json 파일이 없습니다.")
-        return
+        sys.exit(1)
 
     print(f"[*] 렌더링 시작 대상 폴더: {folder_path}")
 
@@ -116,18 +82,18 @@ def main():
             scene_data = json.load(f)
         except Exception as e:
             print(f"에러: scene_data.json 파싱 실패 - {e}")
-            return
+            sys.exit(1)
 
     if not isinstance(scene_data, list) or len(scene_data) == 0:
         print("에러: scene_data.json 형식이 올바르지 않거나 비어 있습니다.")
-        return
+        sys.exit(1)
 
     # 마지막 씬의 end 시간을 기준으로 비디오 프레임 수 계산
     try:
         max_end_time = max(scene.get("end", 0.0) for scene in scene_data)
     except Exception as e:
         print(f"에러: 씬 데이터에서 시간 파싱 중 에러 발생 - {e}")
-        return
+        sys.exit(1)
 
     duration_in_frames = int(math.ceil(max_end_time * FPS))
     # 오버헤드를 막기 위한 최소 1프레임 보장
@@ -143,14 +109,6 @@ def main():
         video_path = os.path.join(folder_path, video_filename)
         orig_path = os.path.join(folder_path, orig_filename)
         temp_video_path = os.path.join(folder_path, f"scene{scene_id}.transcode_temp.mp4")
-        
-        # 기존에 생성된 백업 파일(.orig.mp4)이 있다면 깔끔하게 삭제
-        if os.path.exists(orig_path):
-            try:
-                os.remove(orig_path)
-                print(f"[*] 기존 백업 파일 삭제 완료: {orig_filename}")
-            except Exception as e:
-                print(f"[!] 기존 백업 파일 삭제 실패 ({orig_filename}): {e}")
         
         if os.path.exists(video_path):
             # 오디오가 남아있거나, 혹은 모든 프레임이 키프레임이 아닌 경우(GOP > 1) 최적화 트랜스코딩 진행
@@ -176,6 +134,9 @@ def main():
                     subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
                     
                     # 2. 원본 파일을 임시 파일로 덮어쓰기
+                    # 원본은 최초 1회만 .orig.mp4 로 보존한 뒤 최적화본으로 교체 (원본 손실 방지)
+                    if not os.path.exists(orig_path):
+                        shutil.copy2(video_path, orig_path)
                     os.replace(temp_video_path, video_path)
                     print(f"[+] {video_filename} 최적화 완료 (H264 CFR 30fps + GOP=1 + Muted)")
                 except Exception as e:
@@ -210,7 +171,7 @@ def main():
     # 렌더링 도중 폰트나 Rspack 관련 경고 등으로 터미널이 혼잡할 수 있으므로, standard CLI 실행
     # npx remotion render DynamicVideo <output_path> --props=<props_path>
     cmd = [
-        "npx", "remotion", "render",
+        NPX, "remotion", "render",
         "DynamicVideo",
         output_video_path,
         f"--props={temp_props_path}",
@@ -220,6 +181,7 @@ def main():
     print(f"[*] Remotion 렌더링 실행 중 (출력 경로: {output_video_path})...")
     print(f"[*] 명령어: {' '.join(cmd)}")
     
+    exit_code = 0
     try:
         # my-video 디렉토리에서 명령어 실행
         result = subprocess.run(
@@ -230,13 +192,16 @@ def main():
         print(f"[+] 성공: 비디오가 성공적으로 생성되었습니다 -> {output_video_path}")
     except subprocess.CalledProcessError as e:
         print(f"[!] 에러: Remotion 렌더링 명령이 실패했습니다 (반환 코드: {e.returncode})")
+        exit_code = 1
     except Exception as e:
         print(f"[!] 에러: 렌더링 중 오류 발생 - {e}")
+        exit_code = 1
     finally:
         # 임시 props 파일 제거
         if os.path.exists(temp_props_path):
             os.remove(temp_props_path)
             print("[*] 임시 설정 파일을 삭제했습니다.")
+    sys.exit(exit_code)
 
 if __name__ == "__main__":
     main()
