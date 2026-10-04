@@ -53,7 +53,7 @@ const SubtitleOverlay: React.FC<{
 
   // Find the active text block for the current timestamp
   const currentBlock = allBlocks.find(
-    (block) => currentTime >= block.start && currentTime <= block.end
+    (block) => currentTime >= block.start && currentTime < block.end
   );
 
   if (!currentBlock) return null;

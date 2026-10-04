@@ -7,7 +7,7 @@ echo "=================================================="
 
 # 1. Python 패키지 설치
 echo -e "\n1. Python 의존성 라이브러리 설치 중..."
-pip install requests openai python-dotenv
+pip install -r requirements.txt
 
 # 2. Node.js/Remotion 패키지 설치
 echo -e "\n2. Remotion (Node.js) 패키지 설치 중..."
@@ -24,7 +24,7 @@ fi
 # 3. 환경 변수 파일 생성 (.env)
 echo -e "\n3. 환경 변수 (.env) 확인 중..."
 if [ ! -f ".env" ]; then
-  echo "OPENAI_API_KEY=your_openai_api_key_here" > .env
+  cp .env.example .env
   echo "⚠️ .env 파일이 생성되었습니다. 파일 내의 OpenAI API Key를 설정해 주세요."
 else
   echo "✅ .env 파일이 이미 존재합니다."
