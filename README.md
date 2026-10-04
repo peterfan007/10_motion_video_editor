@@ -27,7 +27,7 @@ cd <Repository_Name>
 ---
 
 ### 3. 환경 변수 설정 (`.env`)
-프로젝트 루트 디렉토리에 `.env` 파일을 생성하고 OpenAI API 키를 설정합니다. (Whisper STT 및 자막 교정에 사용됩니다.)
+프로젝트 루트에서 `.env.example`을 복사해 `.env`를 만들고 OpenAI API 키를 설정합니다. (Windows: `copy .env.example .env`, macOS/Linux: `cp .env.example .env`) (Whisper STT 및 자막 교정에 사용됩니다.)
 ```env
 OPENAI_API_KEY=your_openai_api_key_here
 ```
@@ -47,7 +47,7 @@ cd ..
 #### B. Python 라이브러리 설치
 파이프라인 실행 스크립트에서 사용하는 Python 패키지를 설치합니다.
 ```bash
-pip install requests openai python-dotenv
+pip install -r requirements.txt
 ```
 
 ---
@@ -72,6 +72,8 @@ python3 .agents/skills/stt-scene-align/scripts/align.py outputs/my_project
 # 3. Remotion을 통한 씬 영상 합성 및 최종 비디오(output.mp4) 렌더링
 python3 .agents/skills/remotion-render/scripts/render.py outputs/my_project
 ```
+> **Windows 사용자:** `setup.sh`는 Git Bash/WSL에서 실행하거나, 위 4번 단계의 명령을 직접 실행하세요. `my-video/public/outputs`는 루트 `outputs/`를 가리키는 심볼릭 링크이므로, 링크가 깨져 있으면 `mklink /D my-video\public\outputs ..\..\outputs`(관리자 권한 CMD)로 다시 만들어 주세요.
+>
 > **Tip:** 인자를 전달하지 않으면 `outputs/` 폴더 내에서 아직 처리되지 않은 가장 최신의 하위 폴더를 자동으로 찾아 처리합니다.
 
 ---
