@@ -1,12 +1,20 @@
 import os
 import json
 import sys
-import glob
 from openai import OpenAI
 from dotenv import load_dotenv
 
-load_dotenv()
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, os.path.join(SCRIPT_DIR, "..", "..", "_common"))
+from pipeline_utils import PROJECT_ROOT, find_script_md, resolve_folder  # noqa: E402
+
+# 실행 위치와 관계없이 프로젝트 루트의 .env를 읽는다
+load_dotenv(os.path.join(PROJECT_ROOT, ".env"))
+_api_key = os.getenv("OPENAI_API_KEY")
+if not _api_key or _api_key == "your_openai_api_key_here":
+    print("에러: .env 파일에 OPENAI_API_KEY를 설정해 주세요.")
+    sys.exit(1)
+client = OpenAI(api_key=_api_key)
 
 FPS = 30
 
@@ -59,20 +67,30 @@ def refine_text_llm(segments, script_text):
         temperature=0
     )
     content = response.choices[0].message.content.strip()
-    if content.startswith("```json"): content = content[7:-3].strip()
-    elif content.startswith("```"): content = content[3:-3].strip()
+    if content.startswith("```json"): content = content[7:].strip()
+    elif content.startswith("```"): content = content[3:].strip()
+    if content.endswith("```"): content = content[:-3].strip()
     return json.loads(content)
 
 def main():
-    if len(sys.argv) < 2: return
-    folder = sys.argv[1]
+    # README 설명대로 인자가 없으면 미처리 최신 폴더를 자동 탐색한다
+    arg = sys.argv[1] if len(sys.argv) >= 2 else None
+    folder = resolve_folder(
+        arg,
+        is_ready=lambda d: os.path.exists(os.path.join(d, "output_1.2x.wav")),
+        is_done=lambda d: os.path.exists(os.path.join(d, "scene_data.json")),
+    )
+    if not folder:
+        sys.exit(1)
     wav_path = os.path.join(folder, "output_1.2x.wav")
-    
-    md_files = glob.glob(os.path.join(folder, "*.md"))
-    if not md_files:
+    if not os.path.exists(wav_path):
+        print(f"에러: {wav_path} 가 없습니다. 먼저 tts-generate를 실행하세요.")
+        sys.exit(1)
+
+    script_path = find_script_md(folder)
+    if not script_path:
         print(f"에러: {folder} 내에 MD 대본 파일이 없습니다.")
-        return
-    script_path = md_files[0]
+        sys.exit(1)
     
     with open(script_path, 'r', encoding='utf-8') as f: 
         script_text = f.read()
@@ -127,7 +145,7 @@ def create_scene(scene_id, blocks):
     return {
         "scene_id": scene_id,
         "start": start, "end": end,
-        "duration_frames": int((end - start) * FPS),
+        "duration_frames": max(1, round((end - start) * FPS)),
         "text_blocks": blocks
     }
 
